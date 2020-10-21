@@ -27,7 +27,6 @@ class IRCBot(pydle.Client):
         return admin
 
 
-
 def run_bot():
     try:
         print(f"[+] Starting IRC bot connecting to {config.IRC_HOST}...\n")

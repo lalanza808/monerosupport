@@ -1,5 +1,5 @@
 import logging
-from supportbot import run_bot
+from supportbot import bot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -7,4 +7,4 @@ logging.basicConfig(
 )
 
 if __name__ == '__main__':
-    run_bot()
+    bot.run_bot()
