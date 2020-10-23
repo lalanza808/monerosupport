@@ -16,7 +16,7 @@ class IRCBot(pydle.Client):
             print(f"Target: {target} - Source: {source} - Message: {message}")
 
         if self.nickname in message:
-            await self.message(target, f"Sup. I'm not very helpful yet, but getting there."
+            await self.message(target, f"Sup. I'm not very helpful yet, but getting there.")
 
     async def is_admin(self, nickname):
         admin = False
