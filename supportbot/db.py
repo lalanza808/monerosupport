@@ -1,6 +1,6 @@
 import datetime
 from peewee import *
-import config
+from supportbot import config
 
 
 db = SqliteDatabase(config.SQLITE_DB_PATH)
