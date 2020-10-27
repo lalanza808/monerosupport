@@ -17,6 +17,8 @@ class IRCBot(pydle.Client):
                 r = Reddit()
                 new_requests = []
                 subreddit = r.reddit.subreddit(r.subreddit)
+
+                # Check for new submissions
                 for submission in subreddit.new():
                     if not SupportRequest.select().where(SupportRequest.post_id == submission.id):
                         s = SupportRequest(
@@ -29,8 +31,21 @@ class IRCBot(pydle.Client):
                         s.save()
                         print(f"Added Reddit post {submission.id} as record #{s.id}")
                         new_requests.append(s)
+
+                # Only post the totals into IRC
                 if new_requests:
-                    await self.message(room, f"Found {len(new_requests)} new Reddit posts in /r/monerosupport. Use `!l` or `!list` to see them.")
+                    await self.message(room, f"Found {len(new_requests)} new Reddit posts in /r/monerosupport. Use `!list` to see the list and `!request x` to see each one.")
+
+                # Check stored posts to see if they're solved
+                posts = SupportRequest.select().where(SupportRequest.solved==False)
+                for post in posts:
+                    p = r.reddit.submission(post.post_id)
+                    if p.link_flair_text:
+                        print(f"Marking post #{post.id} ({post.post_id}) as solved")
+                        post.solved = True
+                        post.save()
+                    await asyncio.sleep(3)
+
                 await asyncio.sleep(30)
 
                 #     solved = BooleanField(default=False)
@@ -55,10 +70,10 @@ class IRCBot(pydle.Client):
             s = []
             reqs = SupportRequest.select().where(
                 SupportRequest.solved==False
-            ).order_by(SupportRequest.timestamp.desc())
+            ).order_by(SupportRequest.timestamp)
             for req in reqs:
-                s.append(f"{req.id} - {req.author} - {arrow.get(req.timestamp).humanize()}")
-            await self.message(target, ", ".join(s[0:9]))
+                s.append(f"#{req.id}")
+            await self.message(target, ", ".join(s))
 
         if message.startswith("!request ") or message in ["!request"]:
             msg = message.split()
@@ -80,7 +95,11 @@ class IRCBot(pydle.Client):
                     _a = "ASSIGNED"
                 else:
                     _a = "UNASSIGNED"
-                await self.message(target, f"{req.id} - {req.title} - https://reddit.com/{req.permalink} - {_a}")
+                if req.solved:
+                    _s = "SOLVED"
+                else:
+                    _s = "UNSOLVED"
+                await self.message(target, f"#{req.id} - {req.title} - {arrow.get(req.timestamp).humanize()} - https://reddit.com{req.permalink} - {_a} - {_s}")
             else:
                 await self.message(target, "No record with that ID")
 
@@ -94,7 +113,6 @@ class IRCBot(pydle.Client):
             admin = info['identified']
             print("info: ", info)
         return admin
-
 
 def run_bot():
     try:
