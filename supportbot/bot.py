@@ -29,33 +29,24 @@ class IRCBot(pydle.Client):
                             timestamp=submission.created_utc
                         )
                         s.save()
-                        print(f"Added Reddit post {submission.id} as record #{s.id}")
+                        print(f"Added Reddit post {submission.id} as record {s.id}")
                         new_requests.append(s)
 
                 # Only post the totals into IRC
                 if new_requests:
-                    await self.message(room, f"Found {len(new_requests)} new Reddit posts in /r/monerosupport. Use `!list` to see the list and `!request x` to see each one.")
+                    await self.message(room, f"Found {len(new_requests)} new Reddit posts in /r/monerosupport. Use `.list` to see the list and `.request x` to see each one.")
 
                 # Check stored posts to see if they're solved
                 posts = SupportRequest.select().where(SupportRequest.solved==False)
                 for post in posts:
                     p = r.reddit.submission(post.post_id)
                     if p.link_flair_text:
-                        print(f"Marking post #{post.id} ({post.post_id}) as solved")
+                        print(f"Marking post {post.id} ({post.post_id}) as solved")
                         post.solved = True
                         post.save()
                     await asyncio.sleep(3)
 
                 await asyncio.sleep(30)
-
-                #     solved = BooleanField(default=False)
-                #     assigned = BooleanField(default=False)
-                #     assignee = ForeignKey(IRCSupportOperator, backref='assignee')
-                #
-                # class IRCSupportOperator(BaseModel):
-                #     irc_nick = CharField()
-                #     is_a_regular = BooleanField()
-                #     is_support_admin = BooleanField()
 
     async def on_message(self, target, source, message):
         if source == self.nickname:
@@ -66,16 +57,18 @@ class IRCBot(pydle.Client):
         if self.nickname in message:
             await self.message(target, f"Sup. I'm not very helpful yet, but getting there.")
 
-        if message in ["!list"]:
+        # list command to show series of unsolved/active support requests
+        if message in [".list"]:
             s = []
             reqs = SupportRequest.select().where(
                 SupportRequest.solved==False
             ).order_by(SupportRequest.timestamp)
             for req in reqs:
-                s.append(f"#{req.id}")
+                s.append(f"{req.id}")
             await self.message(target, ", ".join(s))
 
-        if message.startswith("!request ") or message in ["!request"]:
+        # request command to view meta about a specific support request
+        if message.startswith(".request ") or message in [".request"]:
             msg = message.split()
             if not len(msg) > 1:
                 await self.message(target, "Invalid arguments")
@@ -92,19 +85,63 @@ class IRCBot(pydle.Client):
             ).first()
             if req:
                 if req.assigned:
-                    _a = "ASSIGNED"
+                    _a = f"ASSIGNED ({req.assignee.irc_nick})"
                 else:
                     _a = "UNASSIGNED"
                 if req.solved:
                     _s = "SOLVED"
                 else:
                     _s = "UNSOLVED"
-                await self.message(target, f"#{req.id} - {req.title} - {arrow.get(req.timestamp).humanize()} - https://reddit.com{req.permalink} - {_a} - {_s}")
+                await self.message(target, f"{req.id}: {req.title} - {arrow.get(req.timestamp).humanize()} - https://reddit.com{req.permalink} - {_a} - {_s}")
             else:
                 await self.message(target, "No record with that ID")
 
-        if message in ["!help"]:
-            await self.message(target, "not ready")
+        # claim support ticket - you become the assignee/helpers
+        if message.startswith(".claim ") or message in [".claim"]:
+            msg = message.split()
+            if not len(msg) > 1:
+                await self.message(target, "Invalid arguments")
+                return
+
+            try:
+                post_id = int(msg[1])
+            except:
+                await self.message(target, "Invalid arguments")
+                return
+
+            req = SupportRequest.select().where(
+                SupportRequest.id==post_id
+            ).first()
+            if req:
+                if not await self.is_registered(source):
+                    i = IRCSupportOperator(irc_nick=source)
+                    i.save()
+                else:
+                    i = IRCSupportOperator.select().where(IRCSupportOperator.irc_nick==source)
+                req.assigned = True
+                req.assignee = i
+                req.save()
+                await self.message(target, f"Support request {req.id} claimed by {source}")
+            else:
+                await self.message(target, "No record with that ID")
+
+        # queue command only shows things assigned to you
+        if message in [".queue"]:
+            req = SupportRequest.select().where(
+                IRCSupportOperator.irc_nick==source,
+                IRCSupportOperator.solved==False
+            ).first()
+            if req:
+                reqs = []
+                for i in req:
+                    reqs.append(i)
+                await self.message(target, ", ".join(reqs))
+            else:
+                await self.message(target, "No support requests assigned to you")
+
+        # help command shows available commands
+        if message in [".help"]:
+            await self.message(target, "`.list`: Show open support tickets on Reddit and synchronized to the database. | `.request x`: Show metadata of support request \"x\". | `.claim x`: Claim support request \"x\" | `.queue`: Show support requests assigned to you")
 
     async def is_admin(self, nickname):
         admin = False
@@ -113,6 +150,15 @@ class IRCBot(pydle.Client):
             admin = info['identified']
             print("info: ", info)
         return admin
+
+    async def is_registered(self, nickname):
+        irc_nick = IRCSupportOperator.select().where(
+            IRCSupportOperator.irc_nick==nickname
+        ).first()
+        if irc_nick:
+            return True
+        else:
+            return False
 
 def run_bot():
     try:

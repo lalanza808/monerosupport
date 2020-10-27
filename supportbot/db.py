@@ -11,8 +11,8 @@ class BaseModel(Model):
 
 class IRCSupportOperator(BaseModel):
     irc_nick = CharField()
-    is_a_regular = BooleanField()
-    is_support_admin = BooleanField()
+    is_a_regular = BooleanField(default=False)
+    is_support_admin = BooleanField(default=False)
 
 class SupportRequest(BaseModel):
     post_id = CharField()
