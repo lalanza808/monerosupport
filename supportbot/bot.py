@@ -44,9 +44,8 @@ class IRCBot(pydle.Client):
                         print(f"Marking post {post.id} ({post.post_id}) as solved")
                         post.solved = True
                         post.save()
-                    await asyncio.sleep(3)
 
-                await asyncio.sleep(30)
+                await asyncio.sleep(120)
 
     async def on_message(self, target, source, message):
         if source == self.nickname:
