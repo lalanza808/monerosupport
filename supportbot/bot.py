@@ -37,13 +37,24 @@ class IRCBot(pydle.Client):
                     await self.message(room, f"Found {len(new_requests)} new Reddit posts in /r/monerosupport. Use `.list` to see the list and `.request x` to see each one.")
 
                 # Check stored posts to see if they're solved
-                posts = SupportRequest.select().where(SupportRequest.solved==False)
+                posts = SupportRequest.select().where(SupportRequest.solved == False)
                 for post in posts:
                     p = r.reddit.submission(post.post_id)
                     if p.link_flair_text:
                         print(f"Marking post {post.id} ({post.post_id}) as solved")
                         post.solved = True
                         post.save()
+
+                # Add configured admins as admins
+                for nick in config.ADMIN_NICKNAMES:
+                    if not IRCSupportOperator.select().where(IRCSupportOperator.irc_nick == nick):
+                        print(f"Adding {nick} as an admin")
+                        i = IRCSupportOperator(
+                            irc_nick=nick,
+                            is_a_regular=True,
+                            is_support_admin=True,
+                        )
+                        i.save()
 
                 await asyncio.sleep(120)
 
@@ -54,7 +65,7 @@ class IRCBot(pydle.Client):
             print(f"Target: {target} - Source: {source} - Message: {message}")
 
         if self.nickname in message:
-            await self.message(target, f"Sup. I'm not very helpful yet, but getting there.")
+            await self.message(target, f"Sup. I'm not very helpful yet, but getting there. Try `.help`")
 
         # list command to show series of unsolved/active support requests
         if message in [".list"]:
@@ -109,14 +120,14 @@ class IRCBot(pydle.Client):
                 return
 
             req = SupportRequest.select().where(
-                SupportRequest.id==post_id
+                SupportRequest.id == post_id
             ).first()
             if req:
                 if not await self.is_registered(source):
                     i = IRCSupportOperator(irc_nick=source)
                     i.save()
                 else:
-                    i = IRCSupportOperator.select().where(IRCSupportOperator.irc_nick==source)
+                    i = IRCSupportOperator.select().where(IRCSupportOperator.irc_nick == source)
                 req.assigned = True
                 req.assignee = i
                 req.save()
@@ -126,21 +137,45 @@ class IRCBot(pydle.Client):
 
         # queue command only shows things assigned to you
         if message in [".queue"]:
-            req = SupportRequest.select().where(
-                IRCSupportOperator.irc_nick==source,
-                IRCSupportOperator.solved==False
-            ).first()
-            if req:
-                reqs = []
-                for i in req:
-                    reqs.append(i)
+            user = IRCSupportOperator.select().where(IRCSupportOperator.irc_nick == source)
+            if not user:
+                await self.message(target, "You don't have a queue.")
+                return
+            reqs = SupportRequest.select().where(
+                SupportRequest.assignee == user,
+                SupportRequest.solved == False
+            )
+            if reqs:
                 await self.message(target, ", ".join(reqs))
             else:
-                await self.message(target, "No support requests assigned to you")
+                await self.message(target, "No support requests assigned to you.")
+
+        if message.startswith(".promote ") or message in [".promote"]:
+            msg = message.split()
+            if not len(msg) > 1:
+                await self.message(target, "Invalid arguments.")
+                return
+
+            promoted_nick = str(msg[1])
+            if not await self.is_admin(source):
+                await self.message(target, "You are not an admin of the support bot.")
+                return
+
+            if IRCSupportOperator.select().where(IRCSupportOperator.irc_nick == promoted_nick):
+                await self.message(target, "User already exists!")
+                return
+
+            i = IRCSupportOperator(
+                irc_nick=promoted_nick,
+                is_support_admin=True,
+                is_a_regular=True
+            )
+            i.save()
+            await self.message(target, "Added IRC support user:", irc_nick)
 
         # help command shows available commands
         if message in [".help"]:
-            await self.message(target, "`.list`: Show open support tickets on Reddit and synchronized to the database. | `.request x`: Show metadata of support request \"x\". | `.claim x`: Claim support request \"x\" | `.queue`: Show support requests assigned to you")
+            await self.message(target, "`.list`: Show open support tickets on Reddit and synchronized to the database. | `.request x`: Show metadata of support request \"x\". | `.claim x`: Claim support request \"x\" | `.queue`: Show support requests assigned to you | `.promote x`: Allow user \"x\" to manage more support duties")
 
     async def is_admin(self, nickname):
         admin = False
@@ -149,6 +184,12 @@ class IRCBot(pydle.Client):
             admin = info['identified']
             print("info: ", info)
         return admin
+
+    async def is_support_admin(self, nickname):
+        if IRCSupportOperator.select().where(IRCSupportOperator.is_support_admin == True):
+            return True
+        else:
+            return False
 
     async def is_registered(self, nickname):
         irc_nick = IRCSupportOperator.select().where(

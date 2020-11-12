@@ -10,7 +10,7 @@ class BaseModel(Model):
         database = db
 
 class IRCSupportOperator(BaseModel):
-    irc_nick = CharField()
+    irc_nick = CharField(unique=True)
     is_a_regular = BooleanField(default=False)
     is_support_admin = BooleanField(default=False)
 
